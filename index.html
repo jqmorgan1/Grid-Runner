@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Grid Runner — Q-Learning Lab</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4f;
+      --text: #e8eef7;
+      --muted: #8b9cb3;
+      --accent: #3d9cf5;
+      --goal: #42c977;
+      --trap: #e85d6f;
+      --start: #c9a227;
+      --agent: #9b7dff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #151c28 0%, var(--bg) 100%);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+    header p {
+      margin: 0.35rem 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1.25rem 1.5rem 2rem;
+      display: grid;
+      gap: 1.25rem;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 900px) {
+      main { grid-template-columns: minmax(280px, 360px) 1fr; align-items: start; }
+      .chart-wrap { grid-column: 1 / -1; }
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.1rem;
+    }
+    .card h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .legend-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      user-select: none;
+    }
+    .cell {
+      aspect-ratio: 1;
+      border-radius: 8px;
+      border: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: clamp(0.7rem, 3.5vw, 0.95rem);
+      position: relative;
+      background: #121a26;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .cell.goal { border-color: var(--goal); color: var(--goal); }
+    .cell.trap { border-color: var(--trap); color: var(--trap); }
+    .cell.start { border-color: var(--start); color: var(--start); }
+    .cell.floor { color: var(--muted); font-weight: 600; }
+    .cell.has-agent {
+      box-shadow: 0 0 0 2px var(--agent);
+      border-color: var(--agent);
+    }
+    .agent-dot {
+      position: absolute;
+      width: 42%;
+      height: 42%;
+      border-radius: 50%;
+      background: var(--agent);
+      box-shadow: 0 0 12px rgba(155, 125, 255, 0.65);
+      pointer-events: none;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    button {
+      font: inherit;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: #243044;
+      color: var(--text);
+      padding: 0.45rem 0.85rem;
+      border-radius: 8px;
+    }
+    button:hover { background: #2c3a52; border-color: var(--accent); }
+    button.primary {
+      background: linear-gradient(180deg, #3588d8 0%, #2a6cb0 100%);
+      border-color: #4a9eef;
+      color: #fff;
+    }
+    button.primary:hover { filter: brightness(1.06); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .stats {
+      font-size: 0.88rem;
+      color: var(--muted);
+      display: grid;
+      gap: 0.25rem;
+    }
+    .stats strong { color: var(--text); }
+    details.card summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    details.card .inner { margin-top: 0.75rem; font-size: 0.88rem; color: var(--muted); }
+    #chart {
+      width: 100%;
+      height: 280px;
+      display: block;
+      background: #121a26;
+      border-radius: 8px;
+    }
+    .status-msg { font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem; min-height: 1.25rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Grid Runner — Adaptive Q-Learning</h1>
+    <p>5×5 grid world: ε-greedy exploration, Q-table updates (α = 0.1, γ = 0.9), 500 episodes.</p>
+  </header>
+  <main>
+    <section class="card">
+      <h2>Environment</h2>
+      <div id="legendGrid" class="legend-grid" aria-label="Grid world"></div>
+      <p class="status-msg" id="statusMsg">Train or run a greedy demo to see the agent.</p>
+    </section>
+
+    <section class="card">
+      <h2>Controls</h2>
+      <div class="controls">
+        <button type="button" class="primary" id="btnTrain">Train 500 episodes</button>
+        <button type="button" id="btnReset">Reset Q-table</button>
+        <button type="button" id="btnDemo">Greedy demo (watch path)</button>
+      </div>
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <section class="card chart-wrap">
+      <h2>Adaptation — total reward per episode</h2>
+      <canvas id="chart" width="1000" height="280"></canvas>
+    </section>
+
+    <details class="card chart-wrap">
+      <summary>Why α and ε matter</summary>
+      <div class="inner">
+        <p><strong>α (learning rate)</strong> — Each step nudges Q(s,a) toward the target r + γ·max Q(s′,·). With α = 0.1, updates are conservative so estimates stay stable on this small grid.</p>
+        <p><strong>ε (exploration)</strong> — With probability ε the agent picks a random action; otherwise it exploits the best-known action. ε starts at 1.0 and is multiplied by 0.99 after each episode, so behavior shifts from broad exploration to using what was learned.</p>
+      </div>
+    </details>
+  </main>
+
+  <script>
+(function () {
+  const GRID_SIZE = 5;
+  const ALPHA = 0.1;
+  const GAMMA = 0.9;
+  const EPISODES = 500;
+  const EPSILON_START = 1.0;
+  const EPSILON_DECAY = 0.99;
+  const MAX_STEPS = 200;
+  const MA_WINDOW = 25;
+
+  const START = [0, 0];
+  const GOAL = [4, 4];
+  const TRAPS = new Set(["1,1", "2,2", "3,1"]);
+  const ACTIONS = ["up", "down", "left", "right"];
+  const DELTA = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] };
+
+  const STEP_COST = -1;
+  const GOAL_BONUS = 10;
+  const TRAP_PENALTY = -10;
+
+  function key(r, c) { return r + "," + c; }
+
+  function isGoal(r, c) { return r === GOAL[0] && c === GOAL[1]; }
+  function isTrap(r, c) { return TRAPS.has(key(r, c)); }
+  function isTerminal(r, c) { return isGoal(r, c) || isTrap(r, c); }
+
+  function rewardForLanding(r, c) {
+    if (isGoal(r, c)) return STEP_COST + GOAL_BONUS;
+    if (isTrap(r, c)) return STEP_COST + TRAP_PENALTY;
+    return STEP_COST;
+  }
+
+  function inBounds(r, c) {
+    return r >= 0 && r < GRID_SIZE && c >= 0 && c < GRID_SIZE;
+  }
+
+  function stepState(r, c, a) {
+    const d = DELTA[a];
+    const nr = r + d[0];
+    const nc = c + d[1];
+    return inBounds(nr, nc) ? [nr, nc] : [r, c];
+  }
+
+  function makeQTable() {
+    const q = {};
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE; c++) {
+        if (isTerminal(r, c)) continue;
+        const k = key(r, c);
+        q[k] = { up: 0, down: 0, left: 0, right: 0 };
+      }
+    }
+    return q;
+  }
+
+  function bestAction(q, sKey) {
+    const qa = q[sKey];
+    let best = -Infinity;
+    for (let i = 0; i < ACTIONS.length; i++) {
+      if (qa[ACTIONS[i]] > best) best = qa[ACTIONS[i]];
+    }
+    const ties = [];
+    for (let i = 0; i < ACTIONS.length; i++) {
+      if (qa[ACTIONS[i]] === best) ties.push(ACTIONS[i]);
+    }
+    return ties[Math.floor(Math.random() * ties.length)];
+  }
+
+  function epsilonGreedy(q, sKey, epsilon) {
+    if (Math.random() < epsilon) {
+      return ACTIONS[Math.floor(Math.random() * ACTIONS.length)];
+    }
+    return bestAction(q, sKey);
+  }
+
+  function qLearningUpdate(q, sKey, a, r, sNextKey, done) {
+    let maxNext = 0;
+    if (!done) {
+      const qa = q[sNextKey];
+      let m = -Infinity;
+      for (let i = 0; i < ACTIONS.length; i++) {
+        if (qa[ACTIONS[i]] > m) m = qa[ACTIONS[i]];
+      }
+      maxNext = m;
+    }
+    const target = done ? r : r + GAMMA * maxNext;
+    const old = q[sKey][a];
+    q[sKey][a] = old + ALPHA * (target - old);
+  }
+
+  function runEpisode(q, epsilon) {
+    let row = START[0];
+    let col = START[1];
+    let total = 0;
+    for (let t = 0; t < MAX_STEPS; t++) {
+      if (isTerminal(row, col)) break;
+      const sKey = key(row, col);
+      const a = epsilonGreedy(q, sKey, epsilon);
+      const next = stepState(row, col, a);
+      const nr = next[0];
+      const nc = next[1];
+      const rw = rewardForLanding(nr, nc);
+      total += rw;
+      const done = isTerminal(nr, nc);
+      qLearningUpdate(q, sKey, a, rw, key(nr, nc), done);
+      row = nr;
+      col = nc;
+      if (done) break;
+    }
+    return total;
+  }
+
+  function movingAverage(values, window) {
+    const out = [];
+    for (let i = 0; i < values.length; i++) {
+      const start = Math.max(0, i - window + 1);
+      let sum = 0;
+      let n = 0;
+      for (let j = start; j <= i; j++) {
+        sum += values[j];
+        n++;
+      }
+      out.push(sum / n);
+    }
+    return out;
+  }
+
+  let q = makeQTable();
+  let episodeRewards = [];
+  let agentPos = null;
+  let demoTimer = null;
+
+  const elGrid = document.getElementById("legendGrid");
+  const elStats = document.getElementById("stats");
+  const elStatus = document.getElementById("statusMsg");
+  const canvas = document.getElementById("chart");
+  const ctx = canvas.getContext("2d");
+
+  function renderGrid() {
+    elGrid.innerHTML = "";
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE; c++) {
+        const div = document.createElement("div");
+        div.className = "cell";
+        if (isGoal(r, c)) {
+          div.classList.add("goal");
+          div.textContent = "G";
+        } else if (isTrap(r, c)) {
+          div.classList.add("trap");
+          div.textContent = "X";
+        } else if (r === START[0] && c === START[1]) {
+          div.classList.add("start");
+          div.textContent = "S";
+        } else {
+          div.classList.add("floor");
+          div.textContent = "·";
+        }
+        if (agentPos && agentPos[0] === r && agentPos[1] === c) {
+          div.classList.add("has-agent");
+          const dot = document.createElement("span");
+          dot.className = "agent-dot";
+          div.appendChild(dot);
+        }
+        elGrid.appendChild(div);
+      }
+    }
+  }
+
+  function drawChart(rewards) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const padL = 48;
+    const padR = 16;
+    const padT = 16;
+    const padB = 40;
+    ctx.fillStyle = "#121a26";
+    ctx.fillRect(0, 0, w, h);
+
+    if (!rewards.length) {
+      ctx.fillStyle = "#8b9cb3";
+      ctx.font = "14px system-ui";
+      ctx.fillText("Train to see reward per episode.", padL, h / 2);
+      return;
+    }
+
+    let minR = Math.min.apply(null, rewards);
+    let maxR = Math.max.apply(null, rewards);
+    const ma = movingAverage(rewards, MA_WINDOW);
+    minR = Math.min(minR, Math.min.apply(null, ma));
+    maxR = Math.max(maxR, Math.max.apply(null, ma));
+    const span = maxR - minR || 1;
+    minR -= span * 0.05;
+    maxR += span * 0.05;
+
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+    const n = rewards.length;
+
+    function xOf(i) {
+      return padL + (i / Math.max(1, n - 1)) * plotW;
+    }
+    function yOf(v) {
+      return padT + (1 - (v - minR) / (maxR - minR)) * plotH;
+    }
+
+    ctx.strokeStyle = "#2d3a4f";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, padT);
+    ctx.lineTo(padL, padT + plotH);
+    ctx.lineTo(padL + plotW, padT + plotH);
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(61, 156, 245, 0.35)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = xOf(i);
+      const y = yOf(rewards[i]);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = "#ff9f43";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = xOf(i);
+      const y = yOf(ma[i]);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = "#8b9cb3";
+    ctx.font = "12px system-ui";
+    ctx.fillText("Episode", padL + plotW / 2 - 28, h - 12);
+    ctx.save();
+    ctx.translate(14, padT + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText("Total reward", -48, 0);
+    ctx.restore();
+  }
+
+  function updateStats(lastEps, finalEps, ms) {
+    elStats.innerHTML =
+      "<div>Episodes trained: <strong>" + episodeRewards.length + "</strong></div>" +
+      "<div>Last episode reward: <strong>" + lastEps.toFixed(2) + "</strong></div>" +
+      "<div>ε after last decay: <strong>" + finalEps.toExponential(3) + "</strong></div>" +
+      (ms != null ? "<div>Train time: <strong>" + ms.toFixed(1) + " ms</strong></div>" : "");
+  }
+
+  function setBusy(busy) {
+    document.getElementById("btnTrain").disabled = busy;
+    document.getElementById("btnDemo").disabled = busy;
+  }
+
+  document.getElementById("btnTrain").addEventListener("click", function () {
+    if (demoTimer) {
+      clearInterval(demoTimer);
+      demoTimer = null;
+    }
+    agentPos = null;
+    setBusy(true);
+    elStatus.textContent = "Training…";
+    const t0 = performance.now();
+    q = makeQTable();
+    episodeRewards = [];
+    let epsilon = EPSILON_START;
+    for (let ep = 1; ep <= EPISODES; ep++) {
+      episodeRewards.push(runEpisode(q, epsilon));
+      epsilon *= EPSILON_DECAY;
+    }
+    const t1 = performance.now();
+    setBusy(false);
+    drawChart(episodeRewards);
+    updateStats(
+      episodeRewards[episodeRewards.length - 1],
+      epsilon,
+      t1 - t0
+    );
+    elStatus.textContent = "Training complete. Open the chart below; try Greedy demo.";
+    renderGrid();
+  });
+
+  document.getElementById("btnReset").addEventListener("click", function () {
+    if (demoTimer) {
+      clearInterval(demoTimer);
+      demoTimer = null;
+    }
+    agentPos = null;
+    q = makeQTable();
+    episodeRewards = [];
+    drawChart([]);
+    elStats.innerHTML = "";
+    elStatus.textContent = "Q-table reset.";
+    renderGrid();
+  });
+
+  document.getElementById("btnDemo").addEventListener("click", function () {
+    if (demoTimer) {
+      clearInterval(demoTimer);
+      demoTimer = null;
+    }
+    const path = [];
+    let row = START[0];
+    let col = START[1];
+    path.push([row, col]);
+    for (let t = 0; t < MAX_STEPS; t++) {
+      if (isTerminal(row, col)) break;
+      const sKey = key(row, col);
+      const a = bestAction(q, sKey);
+      const next = stepState(row, col, a);
+      row = next[0];
+      col = next[1];
+      path.push([row, col]);
+      if (isTerminal(row, col)) break;
+    }
+    let i = 0;
+    agentPos = path[0];
+    renderGrid();
+    elStatus.textContent = "Greedy path (current Q-table)…";
+    demoTimer = setInterval(function () {
+      i++;
+      if (i >= path.length) {
+        clearInterval(demoTimer);
+        demoTimer = null;
+        const end = path[path.length - 1];
+        if (isGoal(end[0], end[1])) {
+          elStatus.textContent = "Reached goal.";
+        } else if (isTrap(end[0], end[1])) {
+          elStatus.textContent = "Ended in trap (train longer or check policy).";
+        } else {
+          elStatus.textContent = "Stopped (step limit).";
+        }
+        return;
+      }
+      agentPos = path[i];
+      renderGrid();
+    }, 220);
+  });
+
+  renderGrid();
+  drawChart([]);
+})();
+  </script>
+</body>
+</html>
